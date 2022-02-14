@@ -1,0 +1,295 @@
+---
+title: "A1"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readxl)
+library(janitor)
+library(opendatatoronto)
+library(ggthemes)
+library(BondValuation)
+library(jrvFinance)
+library(lubridate)
+library(nleqslv)
+library(hash)
+```
+
+```{r}
+data <- read.csv('a1.csv', fileEncoding="UTF-8-BOM")
+Fdate <- as.Date('2022-01-10')
+data$maturity_date = as.Date(data$maturity_date, tryFormats = c('%d/%m/%Y')) # Change format of Maturity
+data <- data %>% arrange(maturity_date) # Order maturity date
+Times <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Numbers of Coupon payments including the face value
+FV <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Face value
+CPN <- c(0,0,0,0,0,0,0,0,0,0, 0) # Coupon rate
+Dirty_price1 <- c(0,0,0,0,0,0,0,0,0,0, 0) # Dirty Price
+Dirty_price2 <- c(0,0,0,0,0,0,0,0,0,0, 0) # Dirty Price
+Dirty_price3 <- c(0,0,0,0,0,0,0,0,0,0, 0) # Dirty Price
+Dirty_price4 <- c(0,0,0,0,0,0,0,0,0,0, 0) # Dirty Price
+Dirty_price5 <- c(0,0,0,0,0,0,0,0,0,0, 0) # Dirty Price
+Dirty_price6 <- c(0,0,0,0,0,0,0,0,0,0, 0) # Dirty Price
+Dirty_price7 <- c(0,0,0,0,0,0,0,0,0,0, 0) # Dirty Price
+Dirty_price8 <- c(0,0,0,0,0,0,0,0,0,0, 0) # Dirty Price
+Dirty_price9 <- c(0,0,0,0,0,0,0,0,0,0, 0) # Dirty Price
+Dirty_price10 <- c(0,0,0,0,0,0,0,0,0,0, 0) # Dirty Price
+Yield1 <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Yield to Maturity
+Yield2 <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Yield to Maturity
+Yield3 <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Yield to Maturity
+Yield4 <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Yield to Maturity
+Yield5 <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Yield to Maturity
+Yield6 <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Yield to Maturity
+Yield7 <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Yield to Maturity
+Yield8 <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Yield to Maturity
+Yield9 <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Yield to Maturity
+Yield10 <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0) # Yield to Maturity
+Maturity <- c(0, 0, 0, 0, 0, 0, 0,0,0,0, 0)
+Spot1 <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+Spot2 <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+Spot3 <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+Spot4 <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+Spot5 <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+Spot6 <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+Spot7 <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+Spot8 <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+Spot9 <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+Spot10 <- c(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+df <- data.frame(Times, FV, Maturity, CPN, Dirty_price1, Dirty_price2, Dirty_price3, Dirty_price4, Dirty_price5, Dirty_price6, Dirty_price7, Dirty_price8, Dirty_price9, Dirty_price10, Yield1, Yield2, Yield3, Yield4, Yield5, Yield6, Yield7, Yield8,Yield9, Yield10, Spot1, Spot2, Spot3, Spot4, Spot5, Spot6, Spot7, Spot8, Spot9, Spot10)
+for (i in 1:10){
+  df$CPN[i] <- as.numeric(sub('%', '', data[i, 2]))/100
+  df$Times[i] <- (as.numeric(data[i, 4] - Fdate)/30) %/% 6 + 1
+  df$FV[i] <- (df$CPN[i]/2 + 1) * 100
+}
+last_date <- function(Sd, maturityd) { # get how long since the last coupon payment date 
+  nd <- maturityd
+  while (nd > Sd) {
+    nd <- nd %m-% months(6)
+  }
+  n <- as.numeric(Sd - nd)
+  return(n)
+}
+get_dirty <- function(l, cleanp, cpn){ # get dirty price of a bond
+  dirty <- (l/365)*cpn*100 + cleanp
+  return(dirty)
+}
+for (i in 1:10){#Iterate over date
+  for (j in 1:10){ #Iterate over Bond
+    clean_p <- data[j, 4+i] #Get the clean price
+    duration <- last_date(Fdate+i-1, data[j, 4])
+    df[j, 4+i] =get_dirty(duration, clean_p, df[j, 4])
+    }
+}
+get_times <- function(Times, Maturity, Today, CPN, DP){ #Figure out t 
+  pd <- rep(0, Times)
+  for (j in 1:Times) {
+    if (j == Times){
+      a = as.numeric(Maturity - Today) / 365
+      pd[j] = a
+    }
+    else{
+      k = (Times - j) * 6
+      a = as.numeric(as.Date(Maturity %m-% months(k)) - Today) / 365
+      pd[j] = a
+    }
+  
+  }
+  for (k in 1: Times){
+    pd[k] = exp(-pd[k])
+  }
+  return(pd)
+}
+
+get_yield <- function(Times, Maturity, FV, Today, CPN, DP){ # Figure out yield
+  k <- get_times(Times, Maturity, Today, CPN, DP)
+  fn <- function(x){
+    a <- DP
+    for (i in 1:Times){
+      if (i == Times){
+        a = a - FV * (k[i]**x)
+      }
+      else {
+        a = a - (CPN/2)*100 * (k[i]**x)
+      }
+    }
+    return(a)}
+  ytm = nleqslv(1, fn)$x
+  return (ytm)
+}
+
+for (i in 1:10){
+  for (j in 1:10){
+    df[j, 14+i] <- get_yield(df$Times[j], data[j, 4], df$FV[j], Fdate+i-1, df$CPN[j], df[j, 4+i])
+  }
+  df[11, 14+i] = df[9, 14+i] + (122/365)/(184/365)*(df[10, 14+i] - df[9, 14+i]) 
+}
+n <- append(data$maturity_date, as.Date('2027-01-10'))
+plot(x = as.numeric(n - Fdate)/365, y = df$Yield1, xlab = 'Maturity', ylab = 'YTM', type = 'l', col = 'red', lwd = 2, main = '5-year yield curve', ylim = c(0.002, 0.018))
+  lines(x = as.numeric(n - Fdate+1)/365, y = df$Yield2, col = 'blue', lwd = 1)
+    lines(x = as.numeric(n - Fdate+2)/365, y = df$Yield3, col = 'yellow', lwd = 1)
+    lines(x = as.numeric(n - Fdate+3)/365, y = df$Yield4, col = 'green', lwd = 1)
+    lines(x = as.numeric(n - Fdate+4)/365, y = df$Yield5, col = 'black', lwd = 1)
+    lines(x = as.numeric(n - Fdate+5)/365, y = df$Yield6, col = 'grey', lwd = 1)
+    lines(x = as.numeric(n - Fdate+6)/365, y = df$Yield7, col = 'orange', lwd = 1)
+    lines(x = as.numeric(n - Fdate+7)/365, y = df$Yield8, col = 'cyan', lwd = 1)
+    lines(x = as.numeric(n - Fdate+8)/365, y = df$Yield9, col = 'magenta', lwd = 1)
+    lines(x = as.numeric(n - Fdate+9)/365, y = df$Yield10, col = 'steelblue', lwd = 1)
+    
+   legend('bottomright', legend = c("Jan-10", "Jan-11", "Jan-12", "Jan-13", "Jan-14", "Jan-17", "Jan-18", "Jan-19", "Jan-20", "Jan-21"),cex= 0.7, col = c('red', 'blue', 'yellow', 'green', 'black', 'grey', 'orange', 'cyan', 'magenta', 'steelblue'),pch=1)
+df
+```
+
+
+
+
+```{r}
+for (i in 1: 10) {
+  r_2 <- rep(0, 4) # Generate a place holder for yields of bonds mature in Feb and Aug
+  r_3 <- rep(0, 10) # Generate a place holder for yields of bonds mature in Mar and Sep
+  r_t <- rep(0 ,11) # Generate a place holder for yields of all bonds
+  t <- rep(0,11) #placeholder for maturity
+  t <- rep(0,11) #placeholder for maturity
+  dp1 <- df[1, i + 4]
+  r1 = -log(dp1/(df[1, 2]))/(as.numeric(data[1, 4] - Fdate - i + 1)/365)
+  r_2[1] = r1
+  r_t[1] = r1
+  r_3[1] = r1
+  t[1] = (data[1,4] - Fdate +i -1)/365
+  df[1, 24+i] = r1
+  t[1] = as.numeric(data[1, 4] - Fdate + i - 1)/365
+  for (j in 1:9) {
+    t[j + 1] = as.numeric(data[j + 1, 4] - Fdate + i - 1)/365
+    if (month(data[j+1, 4]) == 8|month(data[j+1, 4]) == 2){
+      dp <- df[j+1, 4 + i]
+      coupon <- df$CPN[j+1] * 50
+      for (k in 1:j) {
+        dp = dp - (coupon)* exp(-r_2[k] * ((2/12)+(0.5*(k-1))))}
+      r = -log(dp/(df[j + 1, 2]))/(as.numeric(data[j+1, 4] - Fdate - i + 1)/365)
+      r_2[j+1] = r
+      r_t[j+1] = r
+      df[j + 1, 24+i] = r }
+    else if (month(data[j+1, 4]) == 3|month(data[j+1, 4]) == 9){
+          for (s in 1:2) {
+            r_3[s+1] = 153/184 * r_2[s + 1] + 31/184 * r_2[s+2]} #Using linear interpolation to estimate spot rate
+        r_3[4] = r_2[3] + (31)/(184)*(r_2[4] - r_2[3]) # using linear extrapolation
+        coupon <- df$CPN[j+1] * 50
+        dp = df[j+1, 4 + i] - (coupon)* exp(-r_3[1] * (1/6))
+        for (k in 2:j) {
+          dp = dp - (coupon)* exp(-r_3[k] * ((2/3)+(0.5*(k-2))))}
+        r = -log(dp/(df[j + 1, 2]))/(as.numeric(data[j+1, 4] - Fdate - i + 1)/365)
+        r_3[j] = r
+        r_t[j + 1] = r
+        df[j + 1, 24+i] = r
+      }
+  }
+  r_f = r_t[9] + (122/365)/(184/365)*(r_t[10] - r_t[9]) # using linear extrapolation to estimate 5 years
+  r_t[11] = r_f
+  df[11, 24+i] <- r_f
+  t[11] = (as.Date('2027-01-01') - Fdate)/365
+}
+n <- append(data$maturity_date, as.Date('2027-01-10'))
+plot(x = as.numeric(n - Fdate)/365, y = df$Spot1, xlab = 'Maturity', ylab = 'Spot Rate', type = 'l', col = 'red', lwd = 2, main = '5-year spot rate curve', ylim = c(0.002, 0.018))
+  lines(x = as.numeric(n - Fdate+1)/365, y = df$Spot2, col = 'blue', lwd = 1)
+    lines(x = as.numeric(n - Fdate+2)/365, y = df$Spot3, col = 'yellow', lwd = 1)
+    lines(x = as.numeric(n - Fdate+3)/365, y = df$Spot4, col = 'green', lwd = 1)
+    lines(x = as.numeric(n- Fdate+4)/365, y = df$Spot5, col = 'black', lwd = 1)
+    lines(x = as.numeric(n - Fdate+5)/365, y = df$Spot6, col = 'grey', lwd = 1)
+    lines(x = as.numeric(n - Fdate+6)/365, y = df$Spot7, col = 'orange', lwd = 1)
+    lines(x = as.numeric(n - Fdate+7)/365, y = df$Spot8, col = 'cyan', lwd = 1)
+    lines(x = as.numeric(n - Fdate+8)/365, y = df$Spot9, col = 'magenta', lwd = 1)
+    lines(x = as.numeric(n - Fdate+9)/365, y = df$Spot10, col = 'steelblue', lwd = 1)
+    
+   legend('bottomright', legend = c("Jan-10", "Jan-11", "Jan-12", "Jan-13", "Jan-14", "Jan-17", "Jan-18", "Jan-19", "Jan-20", "Jan-21"),cex= 0.7, col = c('red', 'blue', 'yellow', 'green', 'black', 'grey', 'orange', 'cyan', 'magenta', 'steelblue'),pch=1)
+df
+```
+
+```{r}
+t = c(1, 2, 3, 4)
+find_average_spot <- function(Today, MD, Spot){ #Using linear method to find the average spot rate
+  spot_rate <- rep(0, 5)
+  for (k in 1:4){
+    spot_rate[k] <- Spot[2*k] + as.numeric(Today %m+% years(k) - MD[2*k])*((Spot[2*k+1] - Spot[2*k])/as.numeric(MD[2*k+1] - MD[2*k]))
+  }
+  spot_rate[5] <- Spot[11]
+  return (spot_rate)
+}
+foward = matrix(0, nrow = 10, ncol=4)
+for (i in 1 : 10){
+  spot_rate <- find_average_spot(Fdate + i - 1, append(data$maturity_date, as.Date('2027-01-10') %m+% days(i-1)), df[,24+i])
+  
+  for (j in 1:4){
+    foward[i, j] = ((spot_rate[j+1]*(j+1)) - spot_rate[1])/j
+    
+  }}
+foward_data <- data.frame(t(foward))
+plot(foward_data$X1, xaxt = "n", xlab = 'Terms', ylab = 'Forward Rate', type = 'l', col = 'red', lwd = 2, main = '5-year foward rate curve', ylim = c(0.013, 0.019))
+axis(1, at=1:4, labels=c('1-1', '1-2','1-3','1-4'))
+lines(x = t, y = foward_data$X2, col = 'blue', lwd = 1)
+lines(x = t, y = foward_data$X3, col = 'yellow', lwd = 1)
+
+lines(x = t, y = foward_data$X4, col = 'green', lwd = 1)
+
+lines(x = t, y = foward_data$X5, col = 'black', lwd = 1)
+
+lines(x = t, y = foward_data$X6, col = 'grey', lwd = 1)
+
+lines(x = t, y = foward_data$X7, col = 'orange', lwd = 1)
+
+lines(x = t, y = foward_data$X8, col = 'cyan', lwd = 1)
+
+lines(x = t, y = foward_data$X9, col = 'magenta', lwd = 1)
+
+lines(x = t, y = foward_data$X10, col = 'steelblue', lwd = 1)
+
+    legend('bottomright', legend = c("Jan-10", "Jan-11", "Jan-12", "Jan-13", "Jan-14", "Jan-17", "Jan-18", "Jan-19", "Jan-20", "Jan-21"),cex= 0.7, col = c('red', 'blue', 'yellow', 'green', 'black', 'grey', 'orange', 'cyan', 'magenta', 'steelblue'),pch=1)
+
+find_average_spot(Fdate + 1, append(data$maturity_date, as.Date('2027-01-11')), df[,26])    
+Fdate
+foward_data
+```
+
+```{r}
+tdate <- c(as.Date('2022-01-10'), as.Date('2022-01-11'), as.Date('2022-01-12'), as.Date('2022-01-13'), as.Date('2022-01-14'), as.Date('2022-01-17'), as.Date('2022-01-18'), as.Date('2022-01-19'), as.Date('2022-01-20'), as.Date('2022-01-21'))
+yield_inter = matrix(0, nrow = 10, ncol=5)
+## Calculate yield first using interpolation
+for (i in 1:10) {
+  f_date <- c(tdate[i] %m+% years(1), tdate[i] %m+% years(2),tdate[i] %m+% years(3),tdate[i] %m+% years(4),tdate[i] %m+% years(5)) # Find all years
+  for (j in 1:4) {
+    s = 1
+    while (data[s, 4]>f_date[j]|data[s+1, 4]<f_date[j]) { 
+      s = s+1
+    }
+    yield_inter[i, j] = df[s, 14 + i] + (as.numeric(f_date[j]-data[s,4])/(as.numeric(data[s+1,   
+                  4]-data[s,4]))) *(df[s + 1, 14 + i]-df[s, 14 + i])
+  }
+  yield_inter[i, 5] = df[9, 14+i] + ((as.numeric(f_date[5] - data[9, 4])/365)/(1/2))*(df[10, 14+i] - df[9, 14+i])}
+yield_log = matrix(0, nrow=9, ncol=5)
+## Calculate the log yield
+for (i in 1:5) {
+  for (j in 1:9){
+    yield_log[j, i] = log(yield_inter[j+1, i]/yield_inter[j, i])
+  }
+}
+## Calculate the covariance
+cov(yield_log)
+
+forward_log = matrix(0, nrow = 9, ncol = 4)
+## Calculate the log forward rate
+for (i in 1:4) {
+  for (j in 1:9){
+    forward_log[j, i] = log(foward[j+1, i]/foward[j, i])
+  }
+}
+## Calculate the covariance
+cov(forward_log)
+```
+
+```{r}
+yielde <- eigen(cov(yield_log))
+forwarde <- eigen(cov(forward_log))
+yielde
+forwardv <- forwarde$values
+forwarde
+```
+
